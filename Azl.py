@@ -372,7 +372,7 @@ def main():
             if 'top_n' not in st.session_state: st.session_state.top_n = 100
             if 'evo_n' not in st.session_state: st.session_state.evo_n = 15
             
-            st.session_state.top_n = st.slider("Mărime Lot", 50, 200, st.session_state.top_n)
+            st.session_state.top_n = st.slider("Mărime Lot", 50, 350, st.session_state.top_n)
             st.session_state.evo_n = st.slider("🧬 Genetic", 0, 50, st.session_state.evo_n)
             
             st.markdown("---")
