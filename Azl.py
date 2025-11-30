@@ -48,7 +48,6 @@ st.markdown("""
 
 @st.cache_data
 def detecteaza_configuratia(runde_unice):
-    """Auto-calibrare: Determină tipul de joc."""
     if not runde_unice:
         return 49, 6
     toate_numerele = [num for runda in runde_unice for num in runda]
@@ -77,24 +76,14 @@ def check_portfolio_balance(candidate_nums, current_portfolio, max_exposure_perc
         if new_ratio > max_exposure_percent: return False
     return True
 
-# --- NEW: POLIȚIA TIPARELOR ---
 def check_quality_patterns(num_list):
-    """
-    Returnează True doar dacă varianta respectă regulile de estetică și logică.
-    num_list trebuie să fie sortată!
-    """
     if len(num_list) < 3: return True
-    
-    # 1. VERIFICARE CONSECUTIVE (Triplete Interzise: 11, 12, 13)
     for i in range(len(num_list) - 2):
         if num_list[i+1] == num_list[i] + 1 and num_list[i+2] == num_list[i] + 2:
-            return False # Am găsit tripletă
-            
-    # 2. VERIFICARE PARITATE (Interzis Tot Par sau Tot Impar)
+            return False 
     pari = len([n for n in num_list if n % 2 == 0])
     if pari == 0 or pari == len(num_list):
-        return False # Dezechilibru total
-        
+        return False
     return True
 
 def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
@@ -130,7 +119,7 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
 def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=15):
     copii = []
     attempts = 0
-    max_attempts = target_count * 50 # Mai multe încercări pentru a găsi copii valizi
+    max_attempts = target_count * 50
     if len(parinti) < 2: return []
     
     child_len = len(parinti[0]['set']) 
@@ -149,10 +138,9 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         
         if len(child_nums) != child_len: continue
         
-        # --- FIX: VERIFICĂM TIPARUL ȘI PENTRU COPII ---
         child_sorted = sorted(list(child_nums))
         if not check_quality_patterns(child_sorted):
-            continue # Copilul e urât (consecutiv sau dezechilibrat), îl aruncăm
+            continue
 
         scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len)
         if scor > 0:
@@ -160,7 +148,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
             copii.append({
                 'ID': unique_id, 'Numere': str(child_sorted),
                 'Scor': int(scor), 'Acoperire': str(coverage),
-                'Stats': stats, 'Raw_Set': child_sorted,
+                'Stats': stats, 'Raw_Set': sorted(list(child_nums)),
                 'Tip': '🧬 EVO', 'set': child_nums
             })
 
@@ -181,7 +169,7 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     max_ball, draw_len = detecteaza_configuratia([r['set'] for r in runde_engine])
     
     rejected_sum = 0
-    rejected_pattern = 0 # Contor nou pentru tipare
+    rejected_pattern = 0 
     rejected_zombie = 0
     
     candidati_procesati = []
@@ -190,7 +178,6 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
         variant_len = len(v_list)
         
         if use_strict_filters:
-            # 1. Filtru Sumă
             ideal_sum = (variant_len * (max_ball + 1)) / 2
             suma_min = ideal_sum * 0.25 
             suma_max = ideal_sum * 1.75
@@ -198,8 +185,6 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
                 rejected_sum += 1
                 continue
             
-            # 2. FIX: Filtru TIPARE (Consecutive + Paritate)
-            # Folosim funcția nouă check_quality_patterns
             if not check_quality_patterns(v_list):
                 rejected_pattern += 1
                 continue
@@ -380,9 +365,9 @@ def main():
                         <div class="warning-box">
                             <h4>⚠️ Variante filtrate!</h4>
                             <ul>
-                                <li><b>Tipare Interzise (Consecutive/Paritate):</b> {diag['pattern']}</li>
+                                <li><b>Tipare Interzise:</b> {diag['pattern']}</li>
                                 <li><b>Sumă Incorectă:</b> {diag['sum']}</li>
-                                <li><b>Zombie (0 câștiguri):</b> {diag['zombie']}</li>
+                                <li><b>Zombie:</b> {diag['zombie']}</li>
                             </ul>
                         </div>
                         """, unsafe_allow_html=True)
@@ -430,9 +415,23 @@ def main():
                 st.success(f"Optimizat! -{rm}"); st.rerun()
             st.divider()
             if st.button("🗑️ Golește Tot"): st.session_state.portfolio = []; st.rerun()
+            
+            # --- MODIFICARE AICI PENTRU EXPORT .TXT ---
             if st.session_state.portfolio:
-                df_exp = pd.DataFrame(st.session_state.portfolio)[['ID', 'Numere', 'Scor', 'Acoperire', 'Stats', 'Tip']]
-                st.download_button("💾 Export CSV", df_exp.to_csv(index=False).encode('utf-8'), "Master_Portfolio.csv", "text/csv", type="primary")
+                # Construim string-ul pentru TXT
+                txt_output = ""
+                for v in st.session_state.portfolio:
+                    # v['ID'] este ID-ul, v['Raw_Set'] este lista de numere
+                    nums_str = " ".join(map(str, v['Raw_Set']))
+                    txt_output += f"{v['ID']}, {nums_str}\n"
+
+                st.download_button(
+                    label="💾 Export .TXT (Format ID, Numere)",
+                    data=txt_output,
+                    file_name="Loto_Variante.txt",
+                    mime="text/plain",
+                    type="primary"
+                )
 
         with c_view:
             if st.session_state.portfolio:
