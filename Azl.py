@@ -86,28 +86,35 @@ def check_quality_patterns(num_list):
         return False
     return True
 
-# --- ADĂUGAT: Funcție verificare distanță ---
-def check_min_distance(num_list):
-    """Returnează False dacă există numere consecutive (distanță 1)."""
-    if len(num_list) < 2: return True
-    for i in range(len(num_list) - 1):
-        if num_list[i+1] - num_list[i] == 1:
-            return False 
-    return True
-
+# --- NEW: CALCULATOR DE BONUSURI SMART ---
 def calculeaza_bonusuri_smart(num_list, max_ball):
+    """Acordă puncte extra pentru estetica matematică."""
     bonus = 0
     if not num_list: return 0
+    
+    # 1. Echilibru Mic/Mare (High/Low)
     mid_point = max_ball / 2
     mici = len([n for n in num_list if n <= mid_point])
     mari = len([n for n in num_list if n > mid_point])
+    
+    # Dacă e echilibrat (diferență mică între count-uri), bonus mare
     diff = abs(mici - mari)
-    if diff <= 1: bonus += 50
-    elif diff <= 2: bonus += 20
+    if diff <= 1: 
+        bonus += 50 # Perfect echilibrat (ex: 2 mici, 2 mari)
+    elif diff <= 2:
+        bonus += 20 # Acceptabil
+        
+    # 2. Spread (Acoperire)
+    # Vrem ca diferența dintre Max și Min să fie măcar 40% din plajă
     spread = max(num_list) - min(num_list)
-    if spread > (max_ball * 0.4): bonus += 30
+    if spread > (max_ball * 0.4):
+        bonus += 30
+        
+    # 3. Diversitate Decade
     decade = {n // 10 for n in num_list}
-    if len(decade) >= (len(num_list) - 1): bonus += 20
+    if len(decade) >= (len(num_list) - 1): # Ex: 4 numere în 3 sau 4 decade
+        bonus += 20
+        
     return bonus
 
 def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len, max_ball):
@@ -116,22 +123,33 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len, max
     surse_atinse = set()
     
     variant_len = len(varianta_set)
-    if variant_len == 4: pct_map = {4: 100, 3: 20, 2: 5}
-    elif variant_len == 3: pct_map = {3: 100, 2: 15}
-    elif tip_joc_len <= 7: pct_map = {6: 500, 5: 250, 4: 100, 3: 15, 2: 2} 
-    else: pct_map = {10: 500, 9: 200, 8: 100, 7: 50, 6: 20, 5: 5, 4: 2} 
+    
+    # Grilă Punctaj
+    if variant_len == 4:
+        pct_map = {4: 100, 3: 20, 2: 5}
+    elif variant_len == 3:
+        pct_map = {3: 100, 2: 15}
+    elif tip_joc_len <= 7:
+        pct_map = {6: 500, 5: 250, 4: 100, 3: 15, 2: 2} 
+    else: 
+        pct_map = {10: 500, 9: 200, 8: 100, 7: 50, 6: 20, 5: 5, 4: 2} 
 
+    # 1. Puncte din Istoric (Backtesting)
     for runda_obj in runde_sets_ponderate:
         runda_set = runda_obj['set']
         intersectie = len(varianta_set.intersection(runda_set))
+        
         if intersectie in pct_map:
             points = pct_map[intersectie] * runda_obj['weight']
             scor_total += points
+            
             if intersectie >= 4: palmares[4] += 1
             elif intersectie == 3: palmares[3] += 1
             elif intersectie == 2: palmares[2] += 1
             surse_atinse.add(runda_obj['sursa'])
     
+    # 2. Puncte din Bonificații Smart (Matematică)
+    # Se aplică doar dacă varianta are minim un mic succes în istoric (nu punctăm morții)
     if scor_total > 0:
         bonus = calculeaza_bonusuri_smart(sorted(list(varianta_set)), max_ball)
         scor_total += bonus
@@ -143,6 +161,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
     attempts = 0
     max_attempts = target_count * 50
     if len(parinti) < 2: return []
+    
     child_len = len(parinti[0]['set']) 
 
     while len(copii) < target_count and attempts < max_attempts:
@@ -150,6 +169,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         p1, p2 = random.sample(parinti, 2)
         union = list(p1['set'].union(p2['set']))
         if len(union) < child_len: continue
+        
         child_nums = set(random.sample(union, child_len))
         if random.random() < 0.15: 
             child_list = list(child_nums)
@@ -157,8 +177,10 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
             child_nums = set(child_list)
         
         if len(child_nums) != child_len: continue
+        
         child_sorted = sorted(list(child_nums))
-        if not check_quality_patterns(child_sorted): continue
+        if not check_quality_patterns(child_sorted):
+            continue
 
         scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len, max_ball)
         if scor > 0:
@@ -173,8 +195,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
     copii.sort(key=lambda x: x['Scor'], reverse=True)
     return copii[:target_count]
 
-# --- ADĂUGAT: Parametru use_dist_filter ---
-def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15, use_strict_filters=True, use_dist_filter=False):
+def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15, use_strict_filters=True):
     runde_engine = []
     total_surse_active = 0
     for i in range(1, 14):
@@ -190,19 +211,12 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     rejected_sum = 0
     rejected_pattern = 0 
     rejected_zombie = 0
-    rejected_dist = 0 # Contor nou
     
     candidati_procesati = []
     for var in variante_brute:
         v_list = var['numere_raw']
         variant_len = len(v_list)
         
-        # --- FILTRU DISTANȚĂ ---
-        if use_dist_filter:
-            if not check_min_distance(v_list):
-                rejected_dist += 1
-                continue
-
         if use_strict_filters:
             ideal_sum = (variant_len * (max_ball + 1)) / 2
             suma_min = ideal_sum * 0.25 
@@ -244,7 +258,6 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
         'sum': rejected_sum,
         'pattern': rejected_pattern,
         'zombie': rejected_zombie,
-        'dist': rejected_dist, # Adăugat la diagnostic
         'config': f"{draw_len}/{max_ball}"
     }
     
@@ -354,8 +367,6 @@ def main():
         c1, c2 = st.columns([1, 1.5])
         with c1:
             st.subheader("Configurare Minerit")
-            # --- ADĂUGAT: IMPORT VARIANTE ---
-            uploaded_vars = st.file_uploader("📂 Încarcă Variante (.txt)", type=['txt', 'csv'])
             inv = st.text_area("Variante Brute (Paste)", height=200, placeholder="ID, 1 2 3 4 5 6")
             
             if 'top_n' not in st.session_state: st.session_state.top_n = 100
@@ -366,30 +377,13 @@ def main():
             
             st.markdown("---")
             use_filters = st.checkbox("Activează Filtre Stricte (Tipare/Sumă)", value=True)
-            # --- ADĂUGAT: FILTRU DISTANȚĂ ---
-            use_dist = st.checkbox("🚫 Elimină Variante Consecutive (Distanță)", value=False)
             
             run = st.button("🚀 ANALIZĂ HIBRIDĂ", type="primary", use_container_width=True)
 
         with c2:
             st.subheader("Rezultate")
-            brute = []
-            
-            # 1. Procesare Import Variante
-            if uploaded_vars:
-                try:
-                    content = uploaded_vars.read().decode("utf-8")
-                    for l in content.split('\n'):
-                        parts = l.replace(',', ' ').split()
-                        nums = [int(n) for n in parts if n.strip().isdigit()]
-                        if len(nums) >= 2:
-                            # Luăm toate numerele, ID-ul va fi generat sau ignorat in procesare
-                            brute.append({'id': f"IMP_{random.randint(1000,9999)}", 'numere': set(nums), 'numere_raw': sorted(nums)})
-                    st.info(f"Fișier: {len(brute)} variante încărcate.")
-                except: st.error("Format fișier invalid.")
-
-            # 2. Procesare Text Manual
-            if inv:
+            if run and inv:
+                brute = []
                 for l in inv.split('\n'):
                     if ',' in l:
                         p = l.split(',', 1)
@@ -398,35 +392,33 @@ def main():
                             if nums: brute.append({'id': p[0].strip(), 'numere': set(nums), 'numere_raw': sorted(nums)})
                         except: pass
                 
-            if run and brute:
-                with st.spinner("⚙️ Procesare..."):
-                    res, n_evo, mb, dl, diag = worker_analiza_hibrida(
-                        brute, st.session_state.runde_db, 
-                        st.session_state.top_n, st.session_state.evo_n, 
-                        use_strict_filters=use_filters,
-                        use_dist_filter=use_dist # Trimitem parametrul
-                    )
-                
-                if not res and (use_filters or use_dist):
-                    st.markdown(f"""
-                    <div class="warning-box">
-                        <h4>⚠️ Variante filtrate!</h4>
-                        <ul>
-                            <li><b>Consecutive (Distanță):</b> {diag['dist']}</li>
-                            <li><b>Tipare Interzise:</b> {diag['pattern']}</li>
-                            <li><b>Sumă Incorectă:</b> {diag['sum']}</li>
-                            <li><b>Zombie:</b> {diag['zombie']}</li>
-                        </ul>
-                    </div>
-                    """, unsafe_allow_html=True)
-                else:
-                    st.success(f"Găsite: {len(res)} variante (Genetic: {n_evo})")
-                    df = pd.DataFrame(res)
-                    if not df.empty:
-                        df['Palmares'] = df['Stats'].apply(lambda x: f"4x:{x[4]}|3x:{x[3]}")
-                        st.dataframe(df[['Tip', 'ID', 'Numere', 'Scor', 'Acoperire', 'Palmares']], use_container_width=True, hide_index=True)
-                        st.session_state.temp = res
-                        st.session_state.game_params = (mb, dl)
+                if brute:
+                    with st.spinner("⚙️ Procesare..."):
+                        res, n_evo, mb, dl, diag = worker_analiza_hibrida(
+                            brute, st.session_state.runde_db, 
+                            st.session_state.top_n, st.session_state.evo_n, 
+                            use_strict_filters=use_filters
+                        )
+                    
+                    if not res and use_filters:
+                        st.markdown(f"""
+                        <div class="warning-box">
+                            <h4>⚠️ Variante filtrate!</h4>
+                            <ul>
+                                <li><b>Tipare Interzise:</b> {diag['pattern']}</li>
+                                <li><b>Sumă Incorectă:</b> {diag['sum']}</li>
+                                <li><b>Zombie:</b> {diag['zombie']}</li>
+                            </ul>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.success(f"Găsite: {len(res)} variante (Genetic: {n_evo})")
+                        df = pd.DataFrame(res)
+                        if not df.empty:
+                            df['Palmares'] = df['Stats'].apply(lambda x: f"4x:{x[4]}|3x:{x[3]}")
+                            st.dataframe(df[['Tip', 'ID', 'Numere', 'Scor', 'Acoperire', 'Palmares']], use_container_width=True, hide_index=True)
+                            st.session_state.temp = res
+                            st.session_state.game_params = (mb, dl)
 
             if 'temp' in st.session_state:
                 st.divider()
@@ -488,3 +480,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
