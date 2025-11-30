@@ -367,7 +367,7 @@ def main():
         c1, c2 = st.columns([1, 1.5])
         with c1:
             st.subheader("Configurare Minerit")
-            inv = st.text_area("Variante Brute (Paste)", height=200, placeholder="ID, 1 2 3 4 5 6")
+            inv = st.text_area("Variante Brute (Paste)", height=350, placeholder="ID, 1 2 3 4 5 6")
             
             if 'top_n' not in st.session_state: st.session_state.top_n = 100
             if 'evo_n' not in st.session_state: st.session_state.evo_n = 15
@@ -423,7 +423,7 @@ def main():
             if 'temp' in st.session_state:
                 st.divider()
                 if st.button("📥 ADAUGĂ ÎN SEIF (Cu Filtru Risc)", use_container_width=True):
-                    mb, dl = st.session_state.get('game_params', (49, 6))
+                    mb, dl = st.session_state.get('game_params', (66, 12))
                     limit_pct = get_exposure_limit(mb, dl)
                     added, rejected = 0, 0
                     exist_ids = {v['ID'] for v in st.session_state.portfolio}
