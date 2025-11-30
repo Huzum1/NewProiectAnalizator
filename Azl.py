@@ -423,7 +423,7 @@ def main():
             if 'temp' in st.session_state:
                 st.divider()
                 if st.button("📥 ADAUGĂ ÎN SEIF (Cu Filtru Risc)", use_container_width=True):
-                    mb, dl = st.session_state.get('game_params', (66, 12))
+                    mb, dl = st.session_state.get('game_params', (49, 6))
                     limit_pct = get_exposure_limit(mb, dl)
                     added, rejected = 0, 0
                     exist_ids = {v['ID'] for v in st.session_state.portfolio}
