@@ -48,7 +48,7 @@ st.markdown("""
 
 @st.cache_data
 def detecteaza_configuratia(runde_unice):
-    """Auto-calibrare: Determină tipul de joc (12/66, 6/49 etc.)"""
+    """Auto-calibrare: Determină tipul de joc."""
     if not runde_unice:
         return 49, 6
     toate_numerele = [num for runda in runde_unice for num in runda]
@@ -58,14 +58,12 @@ def detecteaza_configuratia(runde_unice):
     return max_ball, avg_len
 
 def get_exposure_limit(max_ball, draw_len):
-    """Calculează AUTOMAT limita de expunere a unui număr."""
     if max_ball == 0: return 1.0
     base_prob = draw_len / max_ball
     limit = base_prob * 1.5
     return max(0.15, min(limit, 0.50))
 
 def check_portfolio_balance(candidate_nums, current_portfolio, max_exposure_percent):
-    """Verifică riscul."""
     total_size = len(current_portfolio) + 1
     if total_size <= 20: return True
     
@@ -79,6 +77,26 @@ def check_portfolio_balance(candidate_nums, current_portfolio, max_exposure_perc
         if new_ratio > max_exposure_percent: return False
     return True
 
+# --- NEW: POLIȚIA TIPARELOR ---
+def check_quality_patterns(num_list):
+    """
+    Returnează True doar dacă varianta respectă regulile de estetică și logică.
+    num_list trebuie să fie sortată!
+    """
+    if len(num_list) < 3: return True
+    
+    # 1. VERIFICARE CONSECUTIVE (Triplete Interzise: 11, 12, 13)
+    for i in range(len(num_list) - 2):
+        if num_list[i+1] == num_list[i] + 1 and num_list[i+2] == num_list[i] + 2:
+            return False # Am găsit tripletă
+            
+    # 2. VERIFICARE PARITATE (Interzis Tot Par sau Tot Impar)
+    pari = len([n for n in num_list if n % 2 == 0])
+    if pari == 0 or pari == len(num_list):
+        return False # Dezechilibru total
+        
+    return True
+
 def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
     scor_total = 0
     palmares = {4: 0, 3: 0, 2: 0}
@@ -86,23 +104,13 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
     
     variant_len = len(varianta_set)
     
-    # --- SCORING INTELIGENT ADAPTIV ---
-    # Prioritizăm ce joacă omul (4/4), nu ce extrage loteria (12/66)
-    
     if variant_len == 4:
-        # Grila specială pentru 4/4
         pct_map = {4: 100, 3: 20, 2: 5}
     elif variant_len == 3:
-        # Grila specială pentru 3/3
         pct_map = {3: 100, 2: 15}
-    elif variant_len == 2:
-        # Grila specială pentru 2/2
-        pct_map = {2: 100}
     elif tip_joc_len <= 7:
-        # Loto Clasic (6/49)
         pct_map = {6: 500, 5: 250, 4: 100, 3: 15, 2: 2} 
     else: 
-        # Keno / Jocuri Mari (unde joci multe numere)
         pct_map = {10: 500, 9: 200, 8: 100, 7: 50, 6: 20, 5: 5, 4: 2} 
 
     for runda_obj in runde_sets_ponderate:
@@ -112,12 +120,9 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
         if intersectie in pct_map:
             points = pct_map[intersectie] * runda_obj['weight']
             scor_total += points
-            
-            # Palmares universal
             if intersectie >= 4: palmares[4] += 1
             elif intersectie == 3: palmares[3] += 1
             elif intersectie == 2: palmares[2] += 1
-            
             surse_atinse.add(runda_obj['sursa'])
 
     return scor_total, palmares, len(surse_atinse)
@@ -125,10 +130,9 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
 def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=15):
     copii = []
     attempts = 0
-    max_attempts = target_count * 20
+    max_attempts = target_count * 50 # Mai multe încercări pentru a găsi copii valizi
     if len(parinti) < 2: return []
     
-    # Copilul moștenește lungimea părintelui
     child_len = len(parinti[0]['set']) 
 
     while len(copii) < target_count and attempts < max_attempts:
@@ -145,13 +149,18 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         
         if len(child_nums) != child_len: continue
         
+        # --- FIX: VERIFICĂM TIPARUL ȘI PENTRU COPII ---
+        child_sorted = sorted(list(child_nums))
+        if not check_quality_patterns(child_sorted):
+            continue # Copilul e urât (consecutiv sau dezechilibrat), îl aruncăm
+
         scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len)
         if scor > 0:
             unique_id = f"EVO_{int(time.time())}_{random.randint(100,999)}"
             copii.append({
-                'ID': unique_id, 'Numere': str(sorted(list(child_nums))),
+                'ID': unique_id, 'Numere': str(child_sorted),
                 'Scor': int(scor), 'Acoperire': str(coverage),
-                'Stats': stats, 'Raw_Set': sorted(list(child_nums)),
+                'Stats': stats, 'Raw_Set': child_sorted,
                 'Tip': '🧬 EVO', 'set': child_nums
             })
 
@@ -171,9 +180,8 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     
     max_ball, draw_len = detecteaza_configuratia([r['set'] for r in runde_engine])
     
-    # Contoare
     rejected_sum = 0
-    rejected_parity = 0
+    rejected_pattern = 0 # Contor nou pentru tipare
     rejected_zombie = 0
     
     candidati_procesati = []
@@ -181,27 +189,23 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
         v_list = var['numere_raw']
         variant_len = len(v_list)
         
-        # --- FILTRE ADAPTIVE ---
         if use_strict_filters:
-            # FIX SUMA: Suma ideală se bazează pe biletul TĂU (variant_len), nu pe extragere
+            # 1. Filtru Sumă
             ideal_sum = (variant_len * (max_ball + 1)) / 2
-            
-            # Marjă largă
             suma_min = ideal_sum * 0.25 
             suma_max = ideal_sum * 1.75
-            
             if not (suma_min <= sum(v_list) <= suma_max): 
                 rejected_sum += 1
                 continue
             
-            pari = len([n for n in v_list if n % 2 == 0])
-            if pari == 0 or pari == len(v_list): 
-                rejected_parity += 1
+            # 2. FIX: Filtru TIPARE (Consecutive + Paritate)
+            # Folosim funcția nouă check_quality_patterns
+            if not check_quality_patterns(v_list):
+                rejected_pattern += 1
                 continue
 
         scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len)
         
-        # Filtru Anti-Zombie (Opțional)
         if use_strict_filters and total_surse_active > 0 and coverage == 0:
              rejected_zombie += 1
              continue
@@ -227,7 +231,7 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     
     diagnostics = {
         'sum': rejected_sum,
-        'parity': rejected_parity,
+        'pattern': rejected_pattern,
         'zombie': rejected_zombie,
         'config': f"{draw_len}/{max_ball}"
     }
@@ -276,7 +280,6 @@ def main():
     
     tab1, tab2, tab3 = st.tabs(["1. 📂 SURSE & CALIBRARE", "2. ⛏️ MINERIT INTELIGENT", "3. 💰 PORTOFOLIU & BALANS"])
 
-    # TAB 1
     with tab1:
         st.info("Sistemul detectează automat tipul de joc.")
         tabs_surse = st.tabs([f"Sursa {i}" for i in range(1, 11)])
@@ -335,7 +338,6 @@ def main():
             c2.metric("Limită Risc", f"{int(limit_pct*100)}%")
             c3.metric("Runde Totale", len(all_rounds_flat))
 
-    # TAB 2
     with tab2:
         c1, c2 = st.columns([1, 1.5])
         with c1:
@@ -349,7 +351,7 @@ def main():
             st.session_state.evo_n = st.slider("🧬 Genetic", 0, 50, st.session_state.evo_n)
             
             st.markdown("---")
-            use_filters = st.checkbox("Activează Filtre Stricte (Sumă/Paritate)", value=True)
+            use_filters = st.checkbox("Activează Filtre Stricte (Tipare/Sumă)", value=True)
             
             run = st.button("🚀 ANALIZĂ HIBRIDĂ", type="primary", use_container_width=True)
 
@@ -378,11 +380,10 @@ def main():
                         <div class="warning-box">
                             <h4>⚠️ Variante filtrate!</h4>
                             <ul>
-                                <li><b>Sumă:</b> {diag['sum']}</li>
-                                <li><b>Paritate:</b> {diag['parity']}</li>
+                                <li><b>Tipare Interzise (Consecutive/Paritate):</b> {diag['pattern']}</li>
+                                <li><b>Sumă Incorectă:</b> {diag['sum']}</li>
                                 <li><b>Zombie (0 câștiguri):</b> {diag['zombie']}</li>
                             </ul>
-                            <p>Dacă vrei să le vezi oricum, debifează "Filtre Stricte".</p>
                         </div>
                         """, unsafe_allow_html=True)
                     else:
@@ -418,7 +419,6 @@ def main():
                     del st.session_state.temp
                     st.rerun()
 
-    # TAB 3
     with tab3:
         st.header(f"💰 Tezaur: {len(st.session_state.portfolio)} Variante")
         c_act, c_view = st.columns([1, 3])
