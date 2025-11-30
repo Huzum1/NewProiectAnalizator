@@ -37,6 +37,7 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 10px;
     }
+    .element-container { margin-bottom: 0.5rem; }
     </style>
 """, unsafe_allow_html=True)
 
@@ -161,9 +162,9 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
         
         # --- FILTRE STRICTE (OPȚIONALE) ---
         if use_strict_filters:
-            # 1. Filtru Sumă (Gaussian) - Toleranță 0.4 - 1.6
-            suma_min = (draw_len * (max_ball + 1) / 2) * 0.4
-            suma_max = (draw_len * (max_ball + 1) / 2) * 1.6
+            # 1. Filtru Sumă (Gaussian) - Toleranță lărgită
+            suma_min = (draw_len * (max_ball + 1) / 2) * 0.35 # Lărgit
+            suma_max = (draw_len * (max_ball + 1) / 2) * 1.65 # Lărgit
             if not (suma_min <= sum(v_list) <= suma_max): 
                 rejected_sum += 1
                 continue
@@ -176,7 +177,7 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
 
         scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len)
         
-        # 3. Filtru Anti-Zombie (Dacă avem istoric bogat, cerem minim 1 potrivire)
+        # 3. Filtru Anti-Zombie
         if total_surse_active > 3 and coverage == 0 and use_strict_filters: 
             rejected_zombie += 1
             continue
@@ -209,7 +210,8 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
         'config': f"{draw_len}/{max_ball}"
     }
     
-    return rezultat_final, len(copii_evoluti), mb, dl, diagnostics
+    # === FIX: Returnăm numele corecte ale variabilelor ===
+    return rezultat_final, len(copii_evoluti), max_ball, draw_len, diagnostics
 
 def elimina_redundanta(portofoliu):
     if not portofoliu: return []
@@ -326,7 +328,6 @@ def main():
             st.session_state.top_n = st.slider("Mărime Lot", 50, 200, st.session_state.top_n)
             st.session_state.evo_n = st.slider("🧬 Genetic", 0, 50, st.session_state.evo_n)
             
-            # --- NOUL CONTROL PENTRU FILTRE ---
             st.markdown("---")
             use_filters = st.checkbox("Activează Filtre Stricte (Sumă/Paritate)", value=True, help="Debifează dacă variantele tale sunt respinse masiv.")
             
@@ -346,7 +347,7 @@ def main():
                 
                 if brute:
                     with st.spinner("⚙️ Procesare..."):
-                        # Trimitem și setarea filtrelor
+                        # Acum apelul va funcționa corect
                         res, n_evo, mb, dl, diag = worker_analiza_hibrida(
                             brute, st.session_state.runde_db, 
                             st.session_state.top_n, st.session_state.evo_n, 
@@ -354,16 +355,15 @@ def main():
                         )
                     
                     if not res and use_filters:
-                        # DIAGNOSTIC VIZUAL
                         st.markdown(f"""
                         <div class="warning-box">
                             <h4>⚠️ Nicio variantă nu a trecut filtrele!</h4>
                             <ul>
-                                <li><b>Respinse Sumă Incorectă:</b> {diag['sum']} (Verifică dacă Rundele din Tab 1 se potrivesc cu Variantele)</li>
-                                <li><b>Respinse Paritate Extremă:</b> {diag['parity']}</li>
-                                <li><b>Respinse "Zombie" (Fără Istoric):</b> {diag['zombie']}</li>
+                                <li><b>Respinse Sumă:</b> {diag['sum']}</li>
+                                <li><b>Respinse Paritate:</b> {diag['parity']}</li>
+                                <li><b>Respinse Zombie:</b> {diag['zombie']}</li>
                             </ul>
-                            <p>👉 <b>Soluție:</b> Debifează căsuța "Activează Filtre Stricte" din stânga și încearcă din nou.</p>
+                            <p>👉 Debifează "Filtre Stricte" din stânga.</p>
                         </div>
                         """, unsafe_allow_html=True)
                     else:
