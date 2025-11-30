@@ -86,13 +86,45 @@ def check_quality_patterns(num_list):
         return False
     return True
 
-def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
+# --- NEW: CALCULATOR DE BONUSURI SMART ---
+def calculeaza_bonusuri_smart(num_list, max_ball):
+    """Acordă puncte extra pentru estetica matematică."""
+    bonus = 0
+    if not num_list: return 0
+    
+    # 1. Echilibru Mic/Mare (High/Low)
+    mid_point = max_ball / 2
+    mici = len([n for n in num_list if n <= mid_point])
+    mari = len([n for n in num_list if n > mid_point])
+    
+    # Dacă e echilibrat (diferență mică între count-uri), bonus mare
+    diff = abs(mici - mari)
+    if diff <= 1: 
+        bonus += 50 # Perfect echilibrat (ex: 2 mici, 2 mari)
+    elif diff <= 2:
+        bonus += 20 # Acceptabil
+        
+    # 2. Spread (Acoperire)
+    # Vrem ca diferența dintre Max și Min să fie măcar 40% din plajă
+    spread = max(num_list) - min(num_list)
+    if spread > (max_ball * 0.4):
+        bonus += 30
+        
+    # 3. Diversitate Decade
+    decade = {n // 10 for n in num_list}
+    if len(decade) >= (len(num_list) - 1): # Ex: 4 numere în 3 sau 4 decade
+        bonus += 20
+        
+    return bonus
+
+def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len, max_ball):
     scor_total = 0
     palmares = {4: 0, 3: 0, 2: 0}
     surse_atinse = set()
     
     variant_len = len(varianta_set)
     
+    # Grilă Punctaj
     if variant_len == 4:
         pct_map = {4: 100, 3: 20, 2: 5}
     elif variant_len == 3:
@@ -102,6 +134,7 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
     else: 
         pct_map = {10: 500, 9: 200, 8: 100, 7: 50, 6: 20, 5: 5, 4: 2} 
 
+    # 1. Puncte din Istoric (Backtesting)
     for runda_obj in runde_sets_ponderate:
         runda_set = runda_obj['set']
         intersectie = len(varianta_set.intersection(runda_set))
@@ -109,10 +142,17 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
         if intersectie in pct_map:
             points = pct_map[intersectie] * runda_obj['weight']
             scor_total += points
+            
             if intersectie >= 4: palmares[4] += 1
             elif intersectie == 3: palmares[3] += 1
             elif intersectie == 2: palmares[2] += 1
             surse_atinse.add(runda_obj['sursa'])
+    
+    # 2. Puncte din Bonificații Smart (Matematică)
+    # Se aplică doar dacă varianta are minim un mic succes în istoric (nu punctăm morții)
+    if scor_total > 0:
+        bonus = calculeaza_bonusuri_smart(sorted(list(varianta_set)), max_ball)
+        scor_total += bonus
 
     return scor_total, palmares, len(surse_atinse)
 
@@ -142,7 +182,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         if not check_quality_patterns(child_sorted):
             continue
 
-        scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len)
+        scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len, max_ball)
         if scor > 0:
             unique_id = f"EVO_{int(time.time())}_{random.randint(100,999)}"
             copii.append({
@@ -158,7 +198,7 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
 def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15, use_strict_filters=True):
     runde_engine = []
     total_surse_active = 0
-    for i in range(1, 11):
+    for i in range(1, 14):
         sursa_key = f"sursa_{i}"
         if sursa_key in runde_config and runde_config[sursa_key]:
             weight = 0.5 + (0.05 * i)
@@ -189,7 +229,7 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
                 rejected_pattern += 1
                 continue
 
-        scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len)
+        scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len, max_ball)
         
         if use_strict_filters and total_surse_active > 0 and coverage == 0:
              rejected_zombie += 1
@@ -267,7 +307,7 @@ def main():
 
     with tab1:
         st.info("Sistemul detectează automat tipul de joc.")
-        tabs_surse = st.tabs([f"Sursa {i}" for i in range(1, 11)])
+        tabs_surse = st.tabs([f"Sursa {i}" for i in range(1, 14)])
         
         all_rounds_flat = []
         for i, t in enumerate(tabs_surse, 1):
@@ -293,7 +333,7 @@ def main():
                         except Exception as e: st.error(f"Eroare: {e}")
 
                 with col_man:
-                    st.write(f"✍️ **Editare Manuală Sursa {i}**")
+                    st.write(f"✍️ **Editare Manuală**")
                     ex = st.session_state.runde_db.get(key, [])
                     val_show = ""
                     if ex:
@@ -416,12 +456,9 @@ def main():
             st.divider()
             if st.button("🗑️ Golește Tot"): st.session_state.portfolio = []; st.rerun()
             
-            # --- MODIFICARE AICI PENTRU EXPORT .TXT ---
             if st.session_state.portfolio:
-                # Construim string-ul pentru TXT
                 txt_output = ""
                 for v in st.session_state.portfolio:
-                    # v['ID'] este ID-ul, v['Raw_Set'] este lista de numere
                     nums_str = " ".join(map(str, v['Raw_Set']))
                     txt_output += f"{v['ID']}, {nums_str}\n"
 
