@@ -31,8 +31,12 @@ st.markdown("""
         background-color: #4b7bff; 
         color: white;
     }
-    /* Stil pentru mesaje de eroare/succes compacte */
-    .element-container { margin-bottom: 0.5rem; }
+    .warning-box {
+        background-color: #fff3cd;
+        border-left: 5px solid #ffc107;
+        padding: 15px;
+        margin-bottom: 10px;
+    }
     </style>
 """, unsafe_allow_html=True)
 
@@ -56,34 +60,21 @@ def get_exposure_limit(max_ball, draw_len):
     if max_ball == 0: return 1.0
     base_prob = draw_len / max_ball
     limit = base_prob * 1.5
-    # Limita minimă 15%, maximă 50% (pentru Keno)
     return max(0.15, min(limit, 0.50))
 
 def check_portfolio_balance(candidate_nums, current_portfolio, max_exposure_percent):
-    """
-    Verifică riscul. Include 'Grace Period' pentru primele 20 variante.
-    """
+    """Verifică riscul. Include 'Grace Period' pentru primele 20 variante."""
     total_size = len(current_portfolio) + 1
+    if total_size <= 20: return True
     
-    # PERIOADA DE GRAȚIE: Nu aplicăm filtre stricte la început
-    if total_size <= 20:
-        return True
-    
-    # Numărăm frecvențele actuale
     all_nums = []
-    for p in current_portfolio:
-        all_nums.extend(p['Raw_Set'])
+    for p in current_portfolio: all_nums.extend(p['Raw_Set'])
     counts = Counter(all_nums)
     
-    # Verificăm ipotetic numerele noi
     for num in candidate_nums:
         curr_count = counts.get(num, 0)
-        # Calculăm noua pondere dacă am adăuga această variantă
         new_ratio = (curr_count + 1) / total_size
-        
-        if new_ratio > max_exposure_percent:
-            return False # Respins: Risc de supra-expunere
-            
+        if new_ratio > max_exposure_percent: return False
     return True
 
 def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
@@ -91,12 +82,10 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
     palmares = {4: 0, 3: 0, 2: 0}
     surse_atinse = set()
     
-    # Punctaj Dinamic
+    # Punctaj Dinamic Adaptat
     if tip_joc_len <= 7:
-        # Loto Clasic
         pct_map = {6: 500, 5: 250, 4: 100, 3: 15, 2: 2} 
     else: 
-        # Keno
         pct_map = {10: 500, 9: 200, 8: 100, 7: 50, 6: 20, 5: 5} 
 
     for runda_obj in runde_sets_ponderate:
@@ -106,12 +95,9 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len):
         if intersectie in pct_map:
             points = pct_map[intersectie] * runda_obj['weight']
             scor_total += points
-            
-            # Palmares simplificat pentru afișare
             if intersectie >= 4: palmares[4] += 1
             elif intersectie == 3: palmares[3] += 1
             elif intersectie == 2: palmares[2] += 1
-            
             surse_atinse.add(runda_obj['sursa'])
 
     return scor_total, palmares, len(surse_atinse)
@@ -120,20 +106,15 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
     copii = []
     attempts = 0
     max_attempts = target_count * 20
-    
     if len(parinti) < 2: return []
 
     while len(copii) < target_count and attempts < max_attempts:
         attempts += 1
         p1, p2 = random.sample(parinti, 2)
         union = list(p1['set'].union(p2['set']))
-        
         if len(union) < draw_len: continue
         
-        # Crossover
         child_nums = set(random.sample(union, draw_len))
-        
-        # Mutație (15% șansă)
         if random.random() < 0.15: 
             child_list = list(child_nums)
             child_list[random.randint(0, draw_len-1)] = random.randint(1, max_ball)
@@ -145,27 +126,22 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         if scor > 0:
             unique_id = f"EVO_{int(time.time())}_{random.randint(100,999)}"
             copii.append({
-                'ID': unique_id,
-                'Numere': str(sorted(list(child_nums))),
-                'Scor': int(scor),
-                'Acoperire': str(coverage),
-                'Stats': stats,
-                'Raw_Set': sorted(list(child_nums)),
-                'Tip': '🧬 EVO',
-                'set': child_nums
+                'ID': unique_id, 'Numere': str(sorted(list(child_nums))),
+                'Scor': int(scor), 'Acoperire': str(coverage),
+                'Stats': stats, 'Raw_Set': sorted(list(child_nums)),
+                'Tip': '🧬 EVO', 'set': child_nums
             })
 
     copii.sort(key=lambda x: x['Scor'], reverse=True)
     return copii[:target_count]
 
-def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15):
+def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15, use_strict_filters=True):
     # Pregătire engine
     runde_engine = []
     total_surse_active = 0
     for i in range(1, 11):
         sursa_key = f"sursa_{i}"
         if sursa_key in runde_config and runde_config[sursa_key]:
-            # Ponderare Temporală: Sursa 10 (1.0) vs Sursa 1 (0.55)
             weight = 0.5 + (0.05 * i)
             total_surse_active += 1
             for runda in runde_config[sursa_key]:
@@ -173,23 +149,37 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     
     max_ball, draw_len = detecteaza_configuratia([r['set'] for r in runde_engine])
     
+    # Contoare Diagnostic
+    rejected_sum = 0
+    rejected_parity = 0
+    rejected_zombie = 0
+    
     # Procesare RAW
     candidati_procesati = []
     for var in variante_brute:
         v_list = var['numere_raw']
         
-        # Filtre de bază
-        suma_min = (draw_len * (max_ball + 1) / 2) * 0.5 
-        suma_max = (draw_len * (max_ball + 1) / 2) * 1.5
-        if not (suma_min <= sum(v_list) <= suma_max): continue
-        
-        pari = len([n for n in v_list if n % 2 == 0])
-        if pari == 0 or pari == len(v_list): continue
+        # --- FILTRE STRICTE (OPȚIONALE) ---
+        if use_strict_filters:
+            # 1. Filtru Sumă (Gaussian) - Toleranță 0.4 - 1.6
+            suma_min = (draw_len * (max_ball + 1) / 2) * 0.4
+            suma_max = (draw_len * (max_ball + 1) / 2) * 1.6
+            if not (suma_min <= sum(v_list) <= suma_max): 
+                rejected_sum += 1
+                continue
+            
+            # 2. Filtru Paritate
+            pari = len([n for n in v_list if n % 2 == 0])
+            if pari == 0 or pari == len(v_list): 
+                rejected_parity += 1
+                continue
 
         scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len)
         
-        # Filtru Anti-Zombie
-        if total_surse_active > 3 and coverage == 0: continue
+        # 3. Filtru Anti-Zombie (Dacă avem istoric bogat, cerem minim 1 potrivire)
+        if total_surse_active > 3 and coverage == 0 and use_strict_filters: 
+            rejected_zombie += 1
+            continue
 
         candidati_procesati.append({
             'ID': var['id'], 'Numere': str(v_list), 'Scor': int(scor),
@@ -200,8 +190,10 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     candidati_procesati.sort(key=lambda x: x['Scor'], reverse=True)
     
     # Evoluție
-    parinti = candidati_procesati[:40] 
-    copii_evoluti = evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=evo_count)
+    copii_evoluti = []
+    if candidati_procesati:
+        parinti = candidati_procesati[:40] 
+        copii_evoluti = evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=evo_count)
     
     raw_needed = top_n - len(copii_evoluti)
     best_raw = candidati_procesati[:raw_needed]
@@ -209,13 +201,20 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     rezultat_final = copii_evoluti + best_raw
     rezultat_final.sort(key=lambda x: x['Scor'], reverse=True)
     
-    return rezultat_final, len(copii_evoluti), max_ball, draw_len
+    diagnostics = {
+        'sum': rejected_sum,
+        'parity': rejected_parity,
+        'zombie': rejected_zombie,
+        'total_surse': total_surse_active,
+        'config': f"{draw_len}/{max_ball}"
+    }
+    
+    return rezultat_final, len(copii_evoluti), mb, dl, diagnostics
 
 def elimina_redundanta(portofoliu):
     if not portofoliu: return []
     sorted_p = sorted(portofoliu, key=lambda x: x['Scor'], reverse=True)
     keep = []
-    
     for current in sorted_p:
         is_redundant = False
         curr_set = set(current['Raw_Set'])
@@ -235,7 +234,7 @@ if 'portfolio' not in st.session_state: st.session_state.portfolio = []
 if 'runde_db' not in st.session_state: st.session_state.runde_db = {}
 
 def main():
-    # SIDEBAR - MANAGER PROIECT
+    # SIDEBAR
     with st.sidebar:
         st.header("💾 Manager Proiect")
         if st.session_state.runde_db or st.session_state.portfolio:
@@ -255,24 +254,21 @@ def main():
     
     tab1, tab2, tab3 = st.tabs(["1. 📂 SURSE & CALIBRARE", "2. ⛏️ MINERIT INTELIGENT", "3. 💰 PORTOFOLIU & BALANS"])
 
-    # === TAB 1: INPUT DATE (FIXED: IMPORT + MANUAL) ===
+    # === TAB 1: INPUT ===
     with tab1:
-        st.info("Sistemul detectează automat tipul de joc și ajustează algoritmii.")
+        st.info("Sistemul detectează automat tipul de joc.")
         tabs_surse = st.tabs([f"Sursa {i}" for i in range(1, 11)])
         
         all_rounds_flat = []
         for i, t in enumerate(tabs_surse, 1):
             with t:
                 key = f"sursa_{i}"
-                # Structură pe coloane: Import vs Manual
                 col_imp, col_man = st.columns([1, 2], gap="large")
                 
                 with col_imp:
                     st.write(f"📂 **Import Sursa {i}**")
-                    uploaded_file = st.file_uploader(f"Încarcă fișier text (Sursa {i})", type=['txt', 'csv'], key=f"up_{i}")
-                    
+                    uploaded_file = st.file_uploader(f"Fișier (Sursa {i})", type=['txt', 'csv'], key=f"up_{i}")
                     if uploaded_file is not None:
-                        # Procesare Import
                         try:
                             content = uploaded_file.read().decode("utf-8")
                             parsed_imp = []
@@ -281,66 +277,58 @@ def main():
                                     nums = sorted([int(n) for n in l.replace(';',',').replace(' ', ',').split(',') if n.strip().isdigit()])
                                     if len(nums) > 1: parsed_imp.append(nums)
                                 except: pass
-                            
                             if parsed_imp:
-                                # Salvăm direct în DB
                                 st.session_state.runde_db[key] = parsed_imp
                                 st.success(f"✅ Importat: {len(parsed_imp)} runde!")
-                        except Exception as e:
-                            st.error(f"Eroare fișier: {e}")
+                        except Exception as e: st.error(f"Eroare: {e}")
 
                 with col_man:
-                    # Zona Manuală / Vizualizare (Sincronizată cu DB)
-                    st.write(f"✍️ **Editare / Vizualizare Sursa {i}**")
+                    st.write(f"✍️ **Editare Manuală Sursa {i}**")
                     ex = st.session_state.runde_db.get(key, [])
-                    
-                    # Dacă avem multe runde, afișăm doar primele 50 ca să nu blocăm pagina
                     val_show = ""
                     if ex:
                         val_show = "\n".join([",".join(map(str,r)) for r in ex[:50]])
-                        if len(ex) > 50: val_show += f"\n... (+ încă {len(ex)-50} runde ascunse)"
+                        if len(ex) > 50: val_show += f"\n... (+ {len(ex)-50} runde)"
                     
-                    # Text Area editabil
-                    txt = st.text_area(f"Conținut Sursa {i}", height=150, key=f"t_{i}", value=val_show, help="Poți modifica manual sau da Paste aici.")
-                    
-                    # Logică de actualizare manuală
+                    txt = st.text_area(f"Conținut Sursa {i}", height=150, key=f"t_{i}", value=val_show)
                     if txt and txt != val_show:
                         parsed = []
                         for l in txt.split('\n'):
-                            if "..." in l: continue # Ignorăm linia de rezumat
+                            if "..." in l: continue
                             try:
                                 nums = sorted([int(n) for n in l.replace(';',',').replace(' ', ',').split(',') if n.strip().isdigit()])
                                 if len(nums) > 1: parsed.append(nums)
                             except: pass
                         if parsed: 
                             st.session_state.runde_db[key] = parsed
-                            st.caption(f"✅ Actualizat manual: {len(parsed)} runde")
                             all_rounds_flat.extend(parsed)
-                    elif ex:
-                        all_rounds_flat.extend(ex)
-                        
-        # Feedback Calibrare
+                    elif ex: all_rounds_flat.extend(ex)
+        
         if all_rounds_flat:
             mb, dl = detecteaza_configuratia(all_rounds_flat)
             limit_pct = get_exposure_limit(mb, dl)
             st.divider()
             c1, c2, c3 = st.columns(3)
-            c1.metric("Format Detectat", f"{dl} din {mb}")
-            c2.metric("Limită Expunere", f"{int(limit_pct*100)}%", help="Limita automată de risc per număr.")
-            c3.metric("Total Istoric", len(all_rounds_flat))
+            c1.metric("Configurație", f"{dl} din {mb}")
+            c2.metric("Limită Risc", f"{int(limit_pct*100)}%")
+            c3.metric("Runde Totale", len(all_rounds_flat))
 
     # === TAB 2: MINERIT ===
     with tab2:
         c1, c2 = st.columns([1, 1.5])
         with c1:
-            st.subheader("Input & Config")
-            inv = st.text_area("Variante Brute (Paste aici)", height=250, placeholder="ID, 1 2 3 4 5 6")
+            st.subheader("Configurare Minerit")
+            inv = st.text_area("Variante Brute (Paste)", height=200, placeholder="ID, 1 2 3 4 5 6")
             
             if 'top_n' not in st.session_state: st.session_state.top_n = 100
             if 'evo_n' not in st.session_state: st.session_state.evo_n = 15
             
             st.session_state.top_n = st.slider("Mărime Lot", 50, 200, st.session_state.top_n)
-            st.session_state.evo_n = st.slider("🧬 Generare Genetică", 0, 50, st.session_state.evo_n)
+            st.session_state.evo_n = st.slider("🧬 Genetic", 0, 50, st.session_state.evo_n)
+            
+            # --- NOUL CONTROL PENTRU FILTRE ---
+            st.markdown("---")
+            use_filters = st.checkbox("Activează Filtre Stricte (Sumă/Paritate)", value=True, help="Debifează dacă variantele tale sunt respinse masiv.")
             
             run = st.button("🚀 ANALIZĂ HIBRIDĂ", type="primary", use_container_width=True)
 
@@ -357,65 +345,72 @@ def main():
                         except: pass
                 
                 if brute:
-                    with st.spinner("⚙️ Procesare: Filtre -> Scoring -> Evoluție Genetică..."):
-                        res, n_evo, mb, dl = worker_analiza_hibrida(brute, st.session_state.runde_db, st.session_state.top_n, st.session_state.evo_n)
+                    with st.spinner("⚙️ Procesare..."):
+                        # Trimitem și setarea filtrelor
+                        res, n_evo, mb, dl, diag = worker_analiza_hibrida(
+                            brute, st.session_state.runde_db, 
+                            st.session_state.top_n, st.session_state.evo_n, 
+                            use_strict_filters=use_filters
+                        )
                     
-                    st.success(f"Analiză completă! {len(res)} variante (Genetic: {n_evo})")
-                    
-                    df = pd.DataFrame(res)
-                    if not df.empty:
-                        df['Palmares'] = df['Stats'].apply(lambda x: f"4x:{x[4]}|3x:{x[3]}")
-                        st.dataframe(df[['Tip', 'ID', 'Numere', 'Scor', 'Acoperire', 'Palmares']], use_container_width=True, hide_index=True)
-                        st.session_state.temp = res
-                        st.session_state.game_params = (mb, dl)
+                    if not res and use_filters:
+                        # DIAGNOSTIC VIZUAL
+                        st.markdown(f"""
+                        <div class="warning-box">
+                            <h4>⚠️ Nicio variantă nu a trecut filtrele!</h4>
+                            <ul>
+                                <li><b>Respinse Sumă Incorectă:</b> {diag['sum']} (Verifică dacă Rundele din Tab 1 se potrivesc cu Variantele)</li>
+                                <li><b>Respinse Paritate Extremă:</b> {diag['parity']}</li>
+                                <li><b>Respinse "Zombie" (Fără Istoric):</b> {diag['zombie']}</li>
+                            </ul>
+                            <p>👉 <b>Soluție:</b> Debifează căsuța "Activează Filtre Stricte" din stânga și încearcă din nou.</p>
+                        </div>
+                        """, unsafe_allow_html=True)
                     else:
-                        st.warning("Nicio variantă nu a trecut filtrele stricte.")
+                        st.success(f"Găsite: {len(res)} variante (Genetic: {n_evo})")
+                        df = pd.DataFrame(res)
+                        if not df.empty:
+                            df['Palmares'] = df['Stats'].apply(lambda x: f"4x:{x[4]}|3x:{x[3]}")
+                            st.dataframe(df[['Tip', 'ID', 'Numere', 'Scor', 'Acoperire', 'Palmares']], use_container_width=True, hide_index=True)
+                            st.session_state.temp = res
+                            st.session_state.game_params = (mb, dl)
 
             if 'temp' in st.session_state:
                 st.divider()
-                if st.button("📥 ADAUGĂ CU FILTRU DE RISC AUTOMAT", use_container_width=True):
+                if st.button("📥 ADAUGĂ ÎN SEIF (Cu Filtru Risc)", use_container_width=True):
                     mb, dl = st.session_state.get('game_params', (49, 6))
                     limit_pct = get_exposure_limit(mb, dl)
-                    
                     added, rejected = 0, 0
                     exist_ids = {v['ID'] for v in st.session_state.portfolio}
                     exist_sets = {tuple(v['Raw_Set']) for v in st.session_state.portfolio}
-                    
                     work_portfolio = list(st.session_state.portfolio)
                     
                     for r in st.session_state.temp:
                         r_tup = tuple(r['Raw_Set'])
-                        # 1. Unicitate
                         if r['ID'] not in exist_ids and r_tup not in exist_sets:
-                            # 2. Risk Check
                             if check_portfolio_balance(r['Raw_Set'], work_portfolio, limit_pct):
                                 st.session_state.portfolio.append(r)
                                 work_portfolio.append(r) 
                                 added += 1
                                 exist_ids.add(r['ID'])
-                            else:
-                                rejected += 1
+                            else: rejected += 1
                     
-                    st.toast(f"✅ +{added} adăugate! (⛔ {rejected} oprite de filtrul de risc)")
+                    st.toast(f"✅ +{added} adăugate! (⛔ {rejected} risc mare)")
                     del st.session_state.temp
                     st.rerun()
 
     # === TAB 3: PORTOFOLIU ===
     with tab3:
         st.header(f"💰 Tezaur: {len(st.session_state.portfolio)} Variante")
-        
         c_act, c_view = st.columns([1, 3])
         with c_act:
-            st.write("Instrumente:")
-            if st.button("🔍 Elimină Redundanța (Cluster)", type="secondary"):
+            if st.button("🔍 Elimină Redundanța", type="secondary"):
                 clean = elimina_redundanta(st.session_state.portfolio)
                 rm = len(st.session_state.portfolio) - len(clean)
                 st.session_state.portfolio = clean
-                st.success(f"Optimizat! -{rm} redundante."); st.rerun()
-            
+                st.success(f"Optimizat! -{rm}"); st.rerun()
             st.divider()
             if st.button("🗑️ Golește Tot"): st.session_state.portfolio = []; st.rerun()
-            
             if st.session_state.portfolio:
                 df_exp = pd.DataFrame(st.session_state.portfolio)[['ID', 'Numere', 'Scor', 'Acoperire', 'Stats', 'Tip']]
                 st.download_button("💾 Export CSV", df_exp.to_csv(index=False).encode('utf-8'), "Master_Portfolio.csv", "text/csv", type="primary")
@@ -424,13 +419,9 @@ def main():
             if st.session_state.portfolio:
                 df_p = pd.DataFrame(st.session_state.portfolio)
                 st.dataframe(df_p[['Tip', 'ID', 'Numere', 'Scor', 'Acoperire']], use_container_width=True)
-                
                 st.divider()
-                st.caption("📊 Balanța Riscului (Distribuția Numerelor)")
                 all_n = [n for v in st.session_state.portfolio for n in v['Raw_Set']]
-                if all_n:
-                    chart_data = pd.Series(all_n).value_counts().sort_index()
-                    st.bar_chart(chart_data)
+                if all_n: st.bar_chart(pd.Series(all_n).value_counts().sort_index())
 
 if __name__ == "__main__":
     main()
