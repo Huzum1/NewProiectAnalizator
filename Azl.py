@@ -128,7 +128,6 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         p1, p2 = random.sample(parinti, 2)
         union = list(p1['set'].union(p2['set']))
         
-        # Dacă părinții sunt prea diferiți și nu au destule numere comune, încercăm din nou
         if len(union) < draw_len: continue
         
         # Crossover
@@ -144,7 +143,6 @@ def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=1
         
         scor, stats, coverage = calculeaza_scor_variant(child_nums, runde_engine, draw_len)
         if scor > 0:
-            # ID Unic bazat pe timp pentru a evita coliziuni
             unique_id = f"EVO_{int(time.time())}_{random.randint(100,999)}"
             copii.append({
                 'ID': unique_id,
@@ -180,18 +178,17 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     for var in variante_brute:
         v_list = var['numere_raw']
         
-        # Filtre de bază (Gaussian Sum + Parity)
-        suma_min = (draw_len * (max_ball + 1) / 2) * 0.5 # Toleranță largă
+        # Filtre de bază
+        suma_min = (draw_len * (max_ball + 1) / 2) * 0.5 
         suma_max = (draw_len * (max_ball + 1) / 2) * 1.5
         if not (suma_min <= sum(v_list) <= suma_max): continue
         
-        # Filtru Par/Impar (exclude tot par sau tot impar)
         pari = len([n for n in v_list if n % 2 == 0])
         if pari == 0 or pari == len(v_list): continue
 
         scor, stats, coverage = calculeaza_scor_variant(var['numere'], runde_engine, draw_len)
         
-        # Filtru Anti-Zombie: Trebuie să aibă activitate în surse multiple
+        # Filtru Anti-Zombie
         if total_surse_active > 3 and coverage == 0: continue
 
         candidati_procesati.append({
@@ -203,7 +200,7 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
     candidati_procesati.sort(key=lambda x: x['Scor'], reverse=True)
     
     # Evoluție
-    parinti = candidati_procesati[:40] # Luăm o bază mai largă de părinți
+    parinti = candidati_procesati[:40] 
     copii_evoluti = evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=evo_count)
     
     raw_needed = top_n - len(copii_evoluti)
@@ -216,7 +213,6 @@ def worker_analiza_hibrida(variante_brute, runde_config, top_n=100, evo_count=15
 
 def elimina_redundanta(portofoliu):
     if not portofoliu: return []
-    # Păstrăm variantele cu scor mare
     sorted_p = sorted(portofoliu, key=lambda x: x['Scor'], reverse=True)
     keep = []
     
@@ -225,7 +221,6 @@ def elimina_redundanta(portofoliu):
         curr_set = set(current['Raw_Set'])
         for kept in keep:
             kept_set = set(kept['Raw_Set'])
-            # Dacă diferă doar printr-un singur număr, e redundantă
             if len(curr_set.intersection(kept_set)) >= (len(curr_set) - 1):
                 is_redundant = True
                 break
@@ -260,7 +255,7 @@ def main():
     
     tab1, tab2, tab3 = st.tabs(["1. 📂 SURSE & CALIBRARE", "2. ⛏️ MINERIT INTELIGENT", "3. 💰 PORTOFOLIU & BALANS"])
 
-    # === TAB 1: INPUT DATE ===
+    # === TAB 1: INPUT DATE (FIXED: IMPORT + MANUAL) ===
     with tab1:
         st.info("Sistemul detectează automat tipul de joc și ajustează algoritmii.")
         tabs_surse = st.tabs([f"Sursa {i}" for i in range(1, 11)])
@@ -268,28 +263,62 @@ def main():
         all_rounds_flat = []
         for i, t in enumerate(tabs_surse, 1):
             with t:
-                k = f"sursa_{i}"
-                ex = st.session_state.runde_db.get(k, [])
-                # Afișare inteligentă: Dacă sunt date, arată primele 10 linii + count
-                val_show = "\n".join([",".join(map(str,r)) for r in ex[:20]]) if ex else ""
+                key = f"sursa_{i}"
+                # Structură pe coloane: Import vs Manual
+                col_imp, col_man = st.columns([1, 2], gap="large")
                 
-                txt = st.text_area(f"Paste Runde Sursa {i}", height=100, key=f"t_{i}", value=val_show)
-                
-                if txt and txt != val_show: # Procesăm doar dacă s-a schimbat
-                    parsed = []
-                    for l in txt.split('\n'):
+                with col_imp:
+                    st.write(f"📂 **Import Sursa {i}**")
+                    uploaded_file = st.file_uploader(f"Încarcă fișier text (Sursa {i})", type=['txt', 'csv'], key=f"up_{i}")
+                    
+                    if uploaded_file is not None:
+                        # Procesare Import
                         try:
-                            nums = sorted([int(n) for n in l.replace(';',',').replace(' ', ',').split(',') if n.strip().isdigit()])
-                            if len(nums) > 1: parsed.append(nums)
-                        except: pass
-                    if parsed: 
-                        st.session_state.runde_db[k] = parsed
-                        st.success(f"✅ {len(parsed)} runde actualizate")
-                    all_rounds_flat.extend(parsed)
-                elif ex:
-                    st.caption(f"ℹ️ {len(ex)} runde în memorie.")
-                    all_rounds_flat.extend(ex)
-        
+                            content = uploaded_file.read().decode("utf-8")
+                            parsed_imp = []
+                            for l in content.split('\n'):
+                                try:
+                                    nums = sorted([int(n) for n in l.replace(';',',').replace(' ', ',').split(',') if n.strip().isdigit()])
+                                    if len(nums) > 1: parsed_imp.append(nums)
+                                except: pass
+                            
+                            if parsed_imp:
+                                # Salvăm direct în DB
+                                st.session_state.runde_db[key] = parsed_imp
+                                st.success(f"✅ Importat: {len(parsed_imp)} runde!")
+                        except Exception as e:
+                            st.error(f"Eroare fișier: {e}")
+
+                with col_man:
+                    # Zona Manuală / Vizualizare (Sincronizată cu DB)
+                    st.write(f"✍️ **Editare / Vizualizare Sursa {i}**")
+                    ex = st.session_state.runde_db.get(key, [])
+                    
+                    # Dacă avem multe runde, afișăm doar primele 50 ca să nu blocăm pagina
+                    val_show = ""
+                    if ex:
+                        val_show = "\n".join([",".join(map(str,r)) for r in ex[:50]])
+                        if len(ex) > 50: val_show += f"\n... (+ încă {len(ex)-50} runde ascunse)"
+                    
+                    # Text Area editabil
+                    txt = st.text_area(f"Conținut Sursa {i}", height=150, key=f"t_{i}", value=val_show, help="Poți modifica manual sau da Paste aici.")
+                    
+                    # Logică de actualizare manuală
+                    if txt and txt != val_show:
+                        parsed = []
+                        for l in txt.split('\n'):
+                            if "..." in l: continue # Ignorăm linia de rezumat
+                            try:
+                                nums = sorted([int(n) for n in l.replace(';',',').replace(' ', ',').split(',') if n.strip().isdigit()])
+                                if len(nums) > 1: parsed.append(nums)
+                            except: pass
+                        if parsed: 
+                            st.session_state.runde_db[key] = parsed
+                            st.caption(f"✅ Actualizat manual: {len(parsed)} runde")
+                            all_rounds_flat.extend(parsed)
+                    elif ex:
+                        all_rounds_flat.extend(ex)
+                        
         # Feedback Calibrare
         if all_rounds_flat:
             mb, dl = detecteaza_configuratia(all_rounds_flat)
@@ -307,7 +336,6 @@ def main():
             st.subheader("Input & Config")
             inv = st.text_area("Variante Brute (Paste aici)", height=250, placeholder="ID, 1 2 3 4 5 6")
             
-            # Parametrii salvati in sesiune pentru a nu se reseta la rerun
             if 'top_n' not in st.session_state: st.session_state.top_n = 100
             if 'evo_n' not in st.session_state: st.session_state.evo_n = 15
             
@@ -362,9 +390,9 @@ def main():
                             # 2. Risk Check
                             if check_portfolio_balance(r['Raw_Set'], work_portfolio, limit_pct):
                                 st.session_state.portfolio.append(r)
-                                work_portfolio.append(r) # Update local pt urmatorul check
+                                work_portfolio.append(r) 
                                 added += 1
-                                exist_ids.add(r['ID']) # Prevent duplicates within same batch
+                                exist_ids.add(r['ID'])
                             else:
                                 rejected += 1
                     
