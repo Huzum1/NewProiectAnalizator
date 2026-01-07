@@ -373,7 +373,7 @@ def main():
             if 'evo_n' not in st.session_state: st.session_state.evo_n = 15
             
             st.session_state.top_n = st.slider("Mărime Lot", 50, 350, st.session_state.top_n)
-            st.session_state.evo_n = st.slider("🧬 Genetic", 0, 50, st.session_state.evo_n)
+            st.session_state.evo_n = st.slider("🧬 Genetic", 0, 700, st.session_state.evo_n)
             
             st.markdown("---")
             use_filters = st.checkbox("Activează Filtre Stricte (Tipare/Sumă)", value=True)
@@ -423,7 +423,7 @@ def main():
             if 'temp' in st.session_state:
                 st.divider()
                 if st.button("📥 ADAUGĂ ÎN SEIF (Cu Filtru Risc)", use_container_width=True):
-                    mb, dl = st.session_state.get('game_params', (49, 6))
+                    mb, dl = st.session_state.get('game_params', (66, 12))
                     limit_pct = get_exposure_limit(mb, dl)
                     added, rejected = 0, 0
                     exist_ids = {v['ID'] for v in st.session_state.portfolio}
