@@ -49,11 +49,11 @@ st.markdown("""
 @st.cache_data
 def detecteaza_configuratia(runde_unice):
     if not runde_unice:
-        return 49, 6
+        return 66, 12
     toate_numerele = [num for runda in runde_unice for num in runda]
-    max_ball = max(toate_numerele) if toate_numerele else 49
+    max_ball = max(toate_numerele) if toate_numerele else 66
     lungimi = [len(r) for r in runde_unice]
-    avg_len = int(sum(lungimi) / len(lungimi)) if lungimi else 6
+    avg_len = int(sum(lungimi) / len(lungimi)) if lungimi else 12
     return max_ball, avg_len
 
 def get_exposure_limit(max_ball, draw_len):
@@ -159,7 +159,7 @@ def calculeaza_scor_variant(varianta_set, runde_sets_ponderate, tip_joc_len, max
 def evolueaza_variante(parinti, runde_engine, draw_len, max_ball, target_count=15):
     copii = []
     attempts = 0
-    max_attempts = target_count * 50
+    max_attempts = target_count * 700
     if len(parinti) < 2: return []
     
     child_len = len(parinti[0]['set']) 
