@@ -282,7 +282,7 @@ if st.session_state.runde and st.session_state.variante:
         )
     with d3:
         castiguri = "\n".join(
-            f"{v['id']}, {' '.join(map(str, v['numere']))}, hits={variant_stats[v['id']]}"
+            f"{v['id']}, {' '.join(map(str, v['numere']))}"
             for v in st.session_state.variante if variant_stats[v["id"]] > 0
         )
         st.download_button("🏆 Variante cu hit-uri", castiguri, "castiguri.txt")
