@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🎰 Verificare Variante — Latvia Keno 20/62")
-st.caption("Variante de 6 sau 7 numere din 62 • Runde cu 20 numere extrase")
+st.caption("Variante de 4, 5, 6, 7 sau 8 numere din 62 • Runde cu 20 numere extrase")
 st.divider()
 
 # ==============================
@@ -51,7 +51,7 @@ def parse_runde_bulk(text):
 @st.cache_data(show_spinner=False)
 def parse_variante_bulk(text):
     """
-    Accepta variante de 6 sau de 7 numere, cu sau fara ID inclus.
+    Accepta variante flexibile de 4, 5, 6, 7 sau 8 numere, cu sau fara ID inclus.
     """
     variante = []
     auto_id = 1
@@ -69,47 +69,45 @@ def parse_variante_bulk(text):
             except:
                 pass
         
-        lungime_detectata = len(nums)
+        # Eliminăm duplicatele din numerele liniei curente menținând ordinea
+        unique_nums = sorted(set(nums))
+        lungime_numere = len(unique_nums)
         
-        # Cazul 1: Varianta curată de 6 numere fără ID (sau ID-ul este inclus greșit ca număr)
-        if lungime_detectata == 6:
-            first = tokens[0].rstrip(',')
-            try:
-                first_int = int(first)
-                if first_int not in nums:
-                    vid = first
-                else:
-                    vid = str(auto_id)
-            except:
-                vid = str(auto_id)
-            variante.append({"id": vid, "numere": sorted(set(nums)), "numere_set": set(nums)})
-            auto_id += 1
+        if lungime_numere == 0:
+            continue
             
-        # Cazul 2: Varianta de 7 elemente (Poate fi ID + 6 numere SAU poate fi direct varianta de 7 numere)
-        elif lungime_detectata == 7:
-            first = tokens[0].rstrip(',')
-            try:
-                first_int = int(first)
-                # Dacă primul element nu este în numere, e clar un ID urmat de 6 numere
-                if first_int not in nums:
-                    vid = first
-                    lista_numere = sorted(set(nums))
-                else:
-                    # Altfel, este o variantă pură de 7 numere fără ID
-                    vid = str(auto_id)
-                    lista_numere = sorted(set(nums))
-            except:
-                vid = str(auto_id)
-                lista_numere = sorted(set(nums))
-                
-            variante.append({"id": vid, "numere": lista_numere, "numere_set": set(lista_numere)})
-            auto_id += 1
+        first_token = tokens[0].rstrip(',')
+        is_first_token_id = False
+        
+        try:
+            first_int = int(first_token)
+            # Dacă primul număr din text nu se regăsește în setul de numere extrase valid, este ID
+            if first_int not in unique_nums:
+                is_first_token_id = True
+        except:
+            # Dacă primul token nu e numeric (ex: "V1"), e clar un ID
+            is_first_token_id = True
 
-        # Cazul 3: ID urmat în mod explicit de 7 numere (total 8 elemente pe linie)
-        elif lungime_detectata == 8:
-            vid = tokens[0].rstrip(',')
-            lista_numere = sorted(set(nums[1:]))
-            variante.append({"id": vid, "numere": lista_numere, "numere_set": set(lista_numere)})
+        # Extragere dinamică numere și ID în funcție de structura detectată
+        if is_first_token_id:
+            vid = first_token
+            # Filtrăm primul token din lista totală de numere valide dacă a fost parsat din greșeală
+            try:
+                first_int = int(first_token)
+                lista_numere = [n for n in unique_nums if n != first_int]
+            except:
+                lista_numere = unique_nums
+        else:
+            vid = str(auto_id)
+            lista_numere = unique_nums
+
+        # Validăm ca lungimea finală a variantei să fie între limitele permise (4/4 până la 8/8)
+        if 4 <= len(lista_numere) <= 8:
+            variante.append({
+                "id": vid, 
+                "numere": sorted(lista_numere), 
+                "numere_set": set(lista_numere)
+            })
             auto_id += 1
             
     return variante
@@ -161,12 +159,12 @@ with col1:
         st.info(f"📊 **{len(st.session_state.runde)} runde** incarcate")
 
 with col2:
-    st.header("🎲 Variante (6 sau 7 numere din 62)")
+    st.header("🎲 Variante (4 până la 8 numere)")
     text_variante = st.text_area(
-        "Format: ID, n1 n2 n3 n4 n5 n6 (n7)  sau  n1 n2 n3 n4 n5 n6 (n7)",
+        "Format: ID, n1 n2 n3 n4 ... sau  n1 n2 n3 n4 ...",
         height=150,
         key="input_variante",
-        placeholder="1, 3 7 15 22 44 55\n2, 1 9 18 33 47 61 62\n..."
+        placeholder="1, 5 12 23 45\n2, 1 9 18 33 47 51 55 60\n..."
     )
     col_c, col_d = st.columns(2)
     with col_c:
@@ -191,12 +189,12 @@ st.header("🏆 Rezultate")
 
 if st.session_state.runde and st.session_state.variante:
 
-    # Determinăm dinamic lungimea maximă a variantelor încărcate (poate fi 6 sau 7)
+    # Determinăm dinamic lungimea maximă a variantelor încărcate (4, 5, 6, 7 sau 8)
     max_dim_variante = max(len(v["numere"]) for v in st.session_state.variante)
 
     minim = st.slider(
         f"Numere minime potrivite (match) din {max_dim_variante}:",
-        min_value=3,
+        min_value=3 if max_dim_variante >= 3 else max_dim_variante,
         max_value=max_dim_variante,
         value=max_dim_variante,
         key="slider_minim"
@@ -212,7 +210,7 @@ if st.session_state.runde and st.session_state.variante:
     total_hits      = 0
     match_distribution = Counter()  # distributie match-uri
 
-    # Optimizare buclă: Extragerea referințelor direct în variabile locale locale
+    # Optimizare buclă: Extragerea referințelor direct în variabile locale
     variante_active = [(v["id"], v["numere_set"]) for v in st.session_state.variante]
 
     for rset in st.session_state.runde:
@@ -246,7 +244,7 @@ if st.session_state.runde and st.session_state.variante:
     st.divider()
     st.subheader(f"📊 Distribuție match-uri (toate variantele × toate rundele)")
     
-    # Generăm etichetele dinamic în funcție de dimensiunea maximă (6 sau 7)
+    # Generăm etichetele dinamic în funcție de dimensiunea maximă detectată
     labels = [f"{i}/{max_dim_variante}" for i in range(max_dim_variante + 1)]
     dcols = st.columns(len(labels))
     
@@ -281,7 +279,6 @@ if st.session_state.runde and st.session_state.variante:
     st.subheader("📋 Detalii pe fiecare rundă")
     with st.container(height=350):
         for i, rset in enumerate(st.session_state.runde, 1):
-            # Afișarea listei ordonate a rundei
             runda_ordonata = sorted(list(rset))
             
             hits_runda = [(v["id"], len(v["numere_set"] & rset), v["numere"])
@@ -339,4 +336,4 @@ else:
     if not st.session_state.runde:
         st.info("➡️ Încarcă fișierul `latvia_keno.txt` sau `latvia_numere.txt` pentru runde.")
     if not st.session_state.variante:
-        st.info("➡️ Introdu variantele tale de 6 sau 7 numere.")
+        st.info("➡️ Introdu variantele tale (sunt suportate lungimi de 4, 5, 6, 7 sau 8 numere).")
