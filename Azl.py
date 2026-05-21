@@ -266,7 +266,7 @@ if st.session_state.runde and st.session_state.variante:
     # ==============================
     st.divider()
     st.subheader("⬇️ Download")
-    d1, d2, d3, d4 = st.columns(4)
+    d1, d2, d3, d4, d5 = st.columns(5)
 
     with d1:
         st.download_button(
@@ -289,6 +289,20 @@ if st.session_state.runde and st.session_state.variante:
     with d4:
         top_txt = "\n".join(f"{vid}, {count}" for vid, count in sorted_variants)
         st.download_button("📊 Top variante", top_txt, "top_variante.txt")
+    with d5:
+        runde_fara_hit = [
+            runda for runda in st.session_state.runde
+            if not any(
+                len(set(v["numere"]) & set(runda)) >= minim
+                for v in st.session_state.variante
+            )
+        ]
+        fara_hit_txt = "\n".join(", ".join(map(str, r)) for r in runde_fara_hit)
+        st.download_button(
+            f"❌ Runde fără hit ({len(runde_fara_hit)})",
+            fara_hit_txt,
+            "runde_fara_hit.txt"
+        )
 
 else:
     if not st.session_state.runde:
