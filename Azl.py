@@ -8,7 +8,7 @@ st.set_page_config(
 )
 
 st.title("🎰 Verificare Variante — Latvia Keno 20/62")
-st.caption("Variante de 6 numere din 62 • Runde cu 20 numere extrase")
+st.caption("Variante de 6 sau 7 numere din 62 • Runde cu 20 numere extrase")
 st.divider()
 
 # ==============================
@@ -20,7 +20,7 @@ def parse_runde_bulk(text):
     """
     Accepta formate:
     - Tab-separated: 1\t01.01.2025\t10:00 (R)\t1, 2, 4, 11, ...   (format latvia_keno.txt)
-    - Simplu:        1, 2, 4, 11, 16, 18, ...                       (format latvia_numere.txt)
+    - Simplu:        1, 2, 4, 11, 16, 18, ...                        (format latvia_numere.txt)
     """
     runde = []
     for linie in text.splitlines():
@@ -42,7 +42,8 @@ def parse_runde_bulk(text):
             except:
                 pass
         if len(nums) == 20:
-            runde.append(sorted(set(nums)))
+            # Optimizare: Salvează direct ca set() pre-calculat pentru viteză masivă
+            runde.append(set(nums))
         elif len(nums) > 0 and len(nums) != 20:
             pass  # ignora linii incomplete
     return runde
@@ -50,10 +51,7 @@ def parse_runde_bulk(text):
 @st.cache_data(show_spinner=False)
 def parse_variante_bulk(text):
     """
-    Accepta formate:
-    - 1, 3 7 15 22 44 55       (ID urmat de 6 numere)
-    - 1,3,7,15,22,44,55        (ID + numere cu virgula)
-    - 3 7 15 22 44 55          (fara ID - se genereaza automat)
+    Accepta variante de 6 sau de 7 numere, cu sau fara ID inclus.
     """
     variante = []
     auto_id = 1
@@ -70,26 +68,50 @@ def parse_variante_bulk(text):
                     nums.append(n)
             except:
                 pass
-        nums = sorted(set(nums))
-        if len(nums) == 6:
-            # primul token e ID sau numar din varianta?
+        
+        lungime_detectata = len(nums)
+        
+        # Cazul 1: Varianta curată de 6 numere fără ID (sau ID-ul este inclus greșit ca număr)
+        if lungime_detectata == 6:
             first = tokens[0].rstrip(',')
             try:
                 first_int = int(first)
-                # daca primul nu e in lista finala de 6, e ID
                 if first_int not in nums:
                     vid = first
                 else:
                     vid = str(auto_id)
             except:
                 vid = str(auto_id)
-            variante.append({"id": vid, "numere": nums})
+            variante.append({"id": vid, "numere": sorted(set(nums)), "numere_set": set(nums)})
             auto_id += 1
-        elif len(nums) == 7:
-            # primul e ID, restul 6 sunt numerele
+            
+        # Cazul 2: Varianta de 7 elemente (Poate fi ID + 6 numere SAU poate fi direct varianta de 7 numere)
+        elif lungime_detectata == 7:
+            first = tokens[0].rstrip(',')
+            try:
+                first_int = int(first)
+                # Dacă primul element nu este în numere, e clar un ID urmat de 6 numere
+                if first_int not in nums:
+                    vid = first
+                    lista_numere = sorted(set(nums))
+                else:
+                    # Altfel, este o variantă pură de 7 numere fără ID
+                    vid = str(auto_id)
+                    lista_numere = sorted(set(nums))
+            except:
+                vid = str(auto_id)
+                lista_numere = sorted(set(nums))
+                
+            variante.append({"id": vid, "numere": lista_numere, "numere_set": set(lista_numere)})
+            auto_id += 1
+
+        # Cazul 3: ID urmat în mod explicit de 7 numere (total 8 elemente pe linie)
+        elif lungime_detectata == 8:
             vid = tokens[0].rstrip(',')
-            variante.append({"id": vid, "numere": nums[1:]})
+            lista_numere = sorted(set(nums[1:]))
+            variante.append({"id": vid, "numere": lista_numere, "numere_set": set(lista_numere)})
             auto_id += 1
+            
     return variante
 
 # ==============================
@@ -139,12 +161,12 @@ with col1:
         st.info(f"📊 **{len(st.session_state.runde)} runde** incarcate")
 
 with col2:
-    st.header("🎲 Variante (6 numere din 62)")
+    st.header("🎲 Variante (6 sau 7 numere din 62)")
     text_variante = st.text_area(
-        "Format: ID, n1 n2 n3 n4 n5 n6  sau  n1 n2 n3 n4 n5 n6",
+        "Format: ID, n1 n2 n3 n4 n5 n6 (n7)  sau  n1 n2 n3 n4 n5 n6 (n7)",
         height=150,
         key="input_variante",
-        placeholder="1, 3 7 15 22 44 55\n2, 1 9 18 33 47 61\n..."
+        placeholder="1, 3 7 15 22 44 55\n2, 1 9 18 33 47 61 62\n..."
     )
     col_c, col_d = st.columns(2)
     with col_c:
@@ -169,33 +191,38 @@ st.header("🏆 Rezultate")
 
 if st.session_state.runde and st.session_state.variante:
 
+    # Determinăm dinamic lungimea maximă a variantelor încărcate (poate fi 6 sau 7)
+    max_dim_variante = max(len(v["numere"]) for v in st.session_state.variante)
+
     minim = st.slider(
-        "Numere minime potrivite (match) din 6:",
+        f"Numere minime potrivite (match) din {max_dim_variante}:",
         min_value=3,
-        max_value=6,
-        value=6,
+        max_value=max_dim_variante,
+        value=max_dim_variante,
         key="slider_minim"
     )
 
-    st.caption(f"Cauti variante cu **{minim}/6** numere potrivite în cele 20 extrase")
+    st.caption(f"Cauti variante cu **{minim}/{max_dim_variante}** numere potrivite în cele 20 extrase")
 
     # ==============================
-    # CALCUL
+    # CALCUL OPTIMIZAT
     # ==============================
     variant_stats  = {v["id"]: 0 for v in st.session_state.variante}
     runde_acoperite = 0
     total_hits      = 0
-    match_distribution = Counter()  # distributie 3/4/5/6 match-uri
+    match_distribution = Counter()  # distributie match-uri
 
-    for runda in st.session_state.runde:
-        rset = set(runda)
+    # Optimizare buclă: Extragerea referințelor direct în variabile locale locale
+    variante_active = [(v["id"], v["numere_set"]) for v in st.session_state.variante]
+
+    for rset in st.session_state.runde:
         hit_in_runda = False
 
-        for v in st.session_state.variante:
-            mc = len(set(v["numere"]) & rset)
+        for vid, vset in variante_active:
+            mc = len(vset & rset) # Intersecție de seturi pre-calculate ultra rapidă
             match_distribution[mc] += 1
             if mc >= minim:
-                variant_stats[v["id"]] += 1
+                variant_stats[vid] += 1
                 total_hits += 1
                 if not hit_in_runda:
                     hit_in_runda = True
@@ -217,9 +244,13 @@ if st.session_state.runde and st.session_state.variante:
     # DISTRIBUTIE MATCH-URI
     # ==============================
     st.divider()
-    st.subheader("📊 Distribuție match-uri (toate variantele × toate rundele)")
-    dcols = st.columns(7)
-    for i, label in enumerate(["0/6","1/6","2/6","3/6","4/6","5/6","6/6"]):
+    st.subheader(f"📊 Distribuție match-uri (toate variantele × toate rundele)")
+    
+    # Generăm etichetele dinamic în funcție de dimensiunea maximă (6 sau 7)
+    labels = [f"{i}/{max_dim_variante}" for i in range(max_dim_variante + 1)]
+    dcols = st.columns(len(labels))
+    
+    for i, label in enumerate(labels):
         cnt = match_distribution.get(i, 0)
         total_checks = len(st.session_state.runde) * len(st.session_state.variante)
         pct = cnt / total_checks * 100 if total_checks > 0 else 0
@@ -229,7 +260,7 @@ if st.session_state.runde and st.session_state.variante:
     # TOP VARIANTE
     # ==============================
     st.divider()
-    st.subheader(f"📈 Top variante după hit-uri ({minim}/6)")
+    st.subheader(f"📈 Top variante după hit-uri ({minim}/{max_dim_variante})")
     sorted_variants = sorted(variant_stats.items(), key=lambda x: x[1], reverse=True)
     
     # afiseaza top 30
@@ -241,7 +272,7 @@ if st.session_state.runde and st.session_state.variante:
             bar = "█" * min(count, 40)
             st.text(f"#{vid:>5}  [{' '.join(f'{n:2d}' for n in nums)}]  →  {count:>3} hit-uri ({pct:.1f}%)  {bar}")
     else:
-        st.warning(f"Nicio variantă nu a atins {minim}/6 în rundele analizate.")
+        st.warning(f"Nicio variantă nu a atins {minim}/{max_dim_variante} în rundele analizate.")
 
     # ==============================
     # DETALII PE RUNDE
@@ -249,15 +280,17 @@ if st.session_state.runde and st.session_state.variante:
     st.divider()
     st.subheader("📋 Detalii pe fiecare rundă")
     with st.container(height=350):
-        for i, runda in enumerate(st.session_state.runde, 1):
-            rset = set(runda)
-            hits_runda = [(v["id"], len(set(v["numere"]) & rset), v["numere"])
+        for i, rset in enumerate(st.session_state.runde, 1):
+            # Afișarea listei ordonate a rundei
+            runda_ordonata = sorted(list(rset))
+            
+            hits_runda = [(v["id"], len(v["numere_set"] & rset), v["numere"])
                           for v in st.session_state.variante
-                          if len(set(v["numere"]) & rset) >= minim]
+                          if len(v["numere_set"] & rset) >= minim]
             if hits_runda:
-                st.markdown(f"**Runda {i}** `{runda}` → **{len(hits_runda)} variante câștigătoare**")
+                st.markdown(f"**Runda {i}** `{runda_ordonata}` → **{len(hits_runda)} variante câștigătoare**")
                 for vid, mc, vnums in hits_runda[:5]:
-                    st.text(f"    Varianta #{vid} {vnums} → {mc}/6 ✅")
+                    st.text(f"    Varianta #{vid} {vnums} → {mc}/{max_dim_variante} ✅")
             else:
                 st.text(f"Runda {i:>4} → 0 variante")
 
@@ -271,7 +304,7 @@ if st.session_state.runde and st.session_state.variante:
     with d1:
         st.download_button(
             "📄 Runde",
-            "\n".join(", ".join(map(str, r)) for r in st.session_state.runde),
+            "\n".join(", ".join(map(str, sorted(list(r)))) for r in st.session_state.runde),
             "runde.txt"
         )
     with d2:
@@ -290,12 +323,10 @@ if st.session_state.runde and st.session_state.variante:
         top_txt = "\n".join(f"{vid}, {count}" for vid, count in sorted_variants)
         st.download_button("📊 Top variante", top_txt, "top_variante.txt")
     with d5:
+        # Optimizat filtrarea rundelor fără hit
         runde_fara_hit = [
-            runda for runda in st.session_state.runde
-            if not any(
-                len(set(v["numere"]) & set(runda)) >= minim
-                for v in st.session_state.variante
-            )
+            sorted(list(rset)) for rset in st.session_state.runde
+            if not any(len(v["numere_set"] & rset) >= minim for v in st.session_state.variante)
         ]
         fara_hit_txt = "\n".join(", ".join(map(str, r)) for r in runde_fara_hit)
         st.download_button(
@@ -308,4 +339,4 @@ else:
     if not st.session_state.runde:
         st.info("➡️ Încarcă fișierul `latvia_keno.txt` sau `latvia_numere.txt` pentru runde.")
     if not st.session_state.variante:
-        st.info("➡️ Introdu variantele tale de 6 numere.")
+        st.info("➡️ Introdu variantele tale de 6 sau 7 numere.")
